@@ -1,0 +1,8 @@
+**/.idea
+**/*.iml
+
+**/private
+**/.private
+**/secrets
+**/.secrets
+**/tmp
