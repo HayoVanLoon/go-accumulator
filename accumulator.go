@@ -142,10 +142,10 @@ func (acc *accumulator[T]) Close() error {
 	return acc.close()
 }
 
-// Timeout creates an accumulator that will trigger after the given duration.
-func Timeout[T any](ctx context.Context, d time.Duration, fn ProcessFunc[T]) Accumulator[T] {
+// OnTimeout creates an accumulator that will trigger after the given duration.
+func OnTimeout[T any](ctx context.Context, d time.Duration, fn ProcessFunc[T]) Accumulator[T] {
 	trigger := durationTrigger(d)
-	return New(ctx, trigger, fn)
+	return OnTriggerFunc(ctx, trigger, fn)
 }
 
 func durationTrigger(d time.Duration) TriggerFunc {
@@ -161,27 +161,34 @@ func durationTrigger(d time.Duration) TriggerFunc {
 	}
 }
 
-func New[T any](ctx context.Context, trigger TriggerFunc, proc ProcessFunc[T]) Accumulator[T] {
-	acc := &accumulator[T]{
-		trigger: toTrigger(ctx, trigger),
-		process: proc,
-		in:      make(chan T, 1),
-	}
-	go func() { _ = acc.run(ctx) }()
-	return acc
-}
-
 func OnValue[T comparable](ctx context.Context, t T, proc ProcessFunc[T]) Accumulator[T] {
 	trigger := func(in T) (bool, error) { return in == t, nil }
 	return OnValueFunc(ctx, trigger, proc)
 }
 
-func OnValueFunc[T comparable](ctx context.Context, trigger ValueTrigger[T], proc ProcessFunc[T]) Accumulator[T] {
+func AfterN[T any](ctx context.Context, n int, proc ProcessFunc[T]) Accumulator[T] {
+	return OnValueFunc(ctx, countingTrigger[T](n), proc)
+}
+
+func countingTrigger[T any](n int) ValueTrigger[T] {
+	mu := sync.Mutex{}
+	i := 0
+	if n <= 0 {
+		panic("n must be greater than zero")
+	}
+	return func(t T) (bool, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		i += 1
+		return i-1 >= n, nil
+	}
+}
+
+func OnTriggerFunc[T any](ctx context.Context, trigger TriggerFunc, proc ProcessFunc[T]) Accumulator[T] {
 	acc := &accumulator[T]{
-		trigger:      make(chan error, 1),
-		triggerValue: trigger,
-		process:      proc,
-		in:           make(chan T, 1),
+		trigger: toTrigger(ctx, trigger),
+		process: proc,
+		in:      make(chan T, 1),
 	}
 	go func() { _ = acc.run(ctx) }()
 	return acc
@@ -194,4 +201,15 @@ func toTrigger(ctx context.Context, fn TriggerFunc) chan error {
 		close(ch)
 	}()
 	return ch
+}
+
+func OnValueFunc[T any](ctx context.Context, trigger ValueTrigger[T], proc ProcessFunc[T]) Accumulator[T] {
+	acc := &accumulator[T]{
+		trigger:      make(chan error, 1),
+		triggerValue: trigger,
+		process:      proc,
+		in:           make(chan T, 1),
+	}
+	go func() { _ = acc.run(ctx) }()
+	return acc
 }

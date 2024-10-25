@@ -88,7 +88,7 @@ func TestNew(t *testing.T) {
 
 			trigger, done := triggerFn(tt.args.triggerErr)
 			proc, result := procFn(tt.args.blockOnProc)
-			acc := accumulator.New(ctx, trigger, proc)
+			acc := accumulator.OnTriggerFunc(ctx, trigger, proc)
 
 			for _, x := range tt.args.input {
 				require.True(t, acc.Insert(x))
@@ -307,4 +307,37 @@ func deadlineExceeded(t require.TestingT, err error, _ ...interface{}) {
 
 func isTestError(t require.TestingT, err error, _ ...interface{}) {
 	require.ErrorIs(t, err, testError)
+}
+
+func TestCountingTrigger(t *testing.T) {
+	const maxTest = 10
+	type want struct {
+		inserts int
+	}
+	tests := []struct {
+		name string
+		args int
+		want want
+	}{
+		{
+			"simple",
+			3,
+			want{3},
+		},
+		{
+			"immediately",
+			1,
+			want{1},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fn := accumulator.CountingTrigger[struct{}](tt.args)
+			for i := range maxTest {
+				actual, err := fn(struct{}{})
+				require.NoError(t, err)
+				require.Equalf(t, tt.want.inserts < i+1, actual, "%d: %v", i, actual)
+			}
+		})
+	}
 }
